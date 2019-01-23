@@ -3,25 +3,26 @@
 module Main where
 
 import qualified Codec.Archive.Zip as Zip
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BSL
 import Data.Csv
 import qualified Data.Map as M
 import qualified Data.Vector as V
 
 data Stop = Stop
-  { stopID :: !String
-  , stopName :: !String
+  { stopID :: B.ByteString
+  , stopName :: B.ByteString
   } deriving (Show)
 
 instance FromNamedRecord Stop where
   parseNamedRecord r = Stop <$> r .: "stop_id" <*> r .: "stop_name"
 
 data StopTimes = StopTimes
-  { stTripID :: !String
-  , stArrivalTime :: !String
-  , stDepartureTime :: !String
-  , stStopID :: !String
-  , stStopSequence :: !String
+  { stTripID :: B.ByteString
+  , stArrivalTime :: B.ByteString
+  , stDepartureTime :: B.ByteString
+  , stStopID :: B.ByteString
+  , stStopSequence :: B.ByteString
   } deriving (Show)
 
 instance FromNamedRecord StopTimes where
@@ -31,12 +32,19 @@ instance FromNamedRecord StopTimes where
     r .: "stop_id" <*>
     r .: "stop_sequence"
 
+-- Parsing
+
+byteOrderMark = B.pack [0xef, 0xbb, 0xbf]
+
 loadGtfsFile :: FromNamedRecord a => String -> String -> IO (V.Vector a)
 loadGtfsFile path file = do
   stopsSelector <- Zip.mkEntrySelector file
-  stops <- Zip.withArchive path (Zip.getEntry stopsSelector)
-  let bsLazyStops = BSL.fromStrict stops
-  putStrLn $ show $ BSL.take 512 bsLazyStops
+  content <- Zip.withArchive path (Zip.getEntry stopsSelector)
+  let stripedContent =
+        if B.isPrefixOf byteOrderMark content
+          then B.drop 3 content
+          else content
+  let bsLazyStops = BSL.fromStrict stripedContent
   case decodeByName bsLazyStops of
     Left err -> fail err
     Right (_, v) -> return v
@@ -49,10 +57,11 @@ loadStopTimes path = loadGtfsFile path "stop_times.txt"
 
 main :: IO ()
 main = do
-  let gtfsFile = "sample-feed.zip"
+  let gtfsFile = "gtfs-sbb-reduced.zip"
   stops <- loadStops gtfsFile
   putStrLn "Done reading stops"
   stopTimes <- loadStopTimes gtfsFile
   putStrLn "Done reading stop_times"
-  putStrLn $ show stops
-  putStrLn $ show stopTimes
+  putStrLn $ show $ length stops
+  putStrLn $ show $ length stopTimes
+
